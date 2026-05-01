@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "targetAmount": 1000,
+  "scanInterval": 300,
+  "clickDelayMin": 100,
+  "clickDelayMax": 300,
+  "maxClicks": 5
+}

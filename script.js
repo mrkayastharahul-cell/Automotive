@@ -1,59 +1,93 @@
-let running = false;
-let interval;
-let targetAmount = 100; // change this
+(function () {
+  'use strict';
 
-// Create UI panel
-const panel = document.createElement('div');
-panel.style = `
-position:fixed;
-top:100px;
-right:10px;
-z-index:9999;
-background:#000;
-color:#fff;
-padding:10px;
-border-radius:10px;
-font-size:14px;
-`;
+  if (window.__AUTO_RUNNING__) return;
+  window.__AUTO_RUNNING__ = true;
 
-panel.innerHTML = `
-<div>Target: ₹<input id="amt" value="100" style="width:60px"></div>
-<button id="start">Start</button>
-<button id="stop">Stop</button>
-`;
+  const CONFIG_URL = "https://raw.githubusercontent.com/mrkayastharahul-cell/Automotive/main/config.json";
 
-document.body.appendChild(panel);
+  let config = {};
+  let running = false;
+  let observer = null;
+  let interval = null;
+  let clickCount = 0;
+  let clickedSet = new Set();
 
-// Start
-document.getElementById("start").onclick = () => {
-  targetAmount = document.getElementById("amt").value;
-  running = true;
+  async function loadConfig() {
+    try {
+      const res = await fetch(CONFIG_URL + "?t=" + Date.now());
+      config = await res.json();
+      console.log("⚙️ Config:", config);
+    } catch {
+      console.log("❌ Config load failed");
+    }
+  }
 
-  interval = setInterval(() => {
-    if (!running) return;
+  function scan() {
+    if (!config.enabled) return;
 
-    let amounts = document.querySelectorAll(".amount");
+    const items = document.querySelectorAll("div.item");
 
-    amounts.forEach(el => {
-      let text = el.innerText.replace(/[^\d]/g, '');
+    items.forEach(item => {
+      const priceEl = item.querySelector("div.mb6.x-row.x-row-middle.amount");
+      const btn = item.querySelector("button.van-button.x-btn");
 
-      if (text == targetAmount) {
-        el.style.background = "yellow";
+      if (!priceEl || !btn) return;
 
-        let buyBtn = el.closest("div")?.querySelector("button");
+      const val = parseFloat(priceEl.textContent.replace(/[^\d.]/g, ''));
 
-        if (buyBtn) {
-          buyBtn.style.background = "red";
-          buyBtn.scrollIntoView({behavior:"smooth", block:"center"});
+      if (
+        val === config.targetAmount &&
+        !clickedSet.has(item) &&
+        clickCount < (config.maxClicks || 999)
+      ) {
+        clickedSet.add(item);
+
+        if (config.highlight) {
+          btn.style.boxShadow = "0 0 10px lime";
         }
+
+        const delay =
+          Math.random() *
+            (config.clickDelayMax - config.clickDelayMin) +
+          config.clickDelayMin;
+
+        setTimeout(() => {
+          btn.click();
+          clickCount++;
+          console.log(`✔ Clicked ₹${val} (${clickCount})`);
+        }, delay);
       }
     });
+  }
 
-  }, 300); // fast refresh
-};
+  async function start() {
+    await loadConfig();
 
-// Stop
-document.getElementById("stop").onclick = () => {
-  running = false;
-  clearInterval(interval);
-};
+    if (!config.enabled) return;
+
+    running = true;
+    clickCount = 0;
+    clickedSet.clear();
+
+    scan();
+
+    observer = new MutationObserver(() => {
+      if (running) scan();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+
+    interval = setInterval(() => {
+      if (running) scan();
+    }, config.scanInterval || 300);
+
+    setInterval(loadConfig, 10000);
+  }
+
+  start();
+})();

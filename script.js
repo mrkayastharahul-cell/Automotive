@@ -1,27 +1,55 @@
 (function () {
   'use strict';
 
+  // prevent duplicate run
   if (window.__AUTO_RUNNING__) return;
   window.__AUTO_RUNNING__ = true;
 
   const CONFIG_URL = "https://raw.githubusercontent.com/mrkayastharahul-cell/Automotive/main/config.json";
+  const USERS_URL  = "https://raw.githubusercontent.com/mrkayastharahul-cell/Automotive/main/users.json";
 
   let config = {};
-  let running = false;
-  let observer = null;
-  let interval = null;
-  let clickCount = 0;
-  let clickedSet = new Set();
+  let userId = localStorage.getItem("auto_user_id");
 
-  async function loadConfig() {
+  if (!userId) {
+    userId = "user_" + Math.random().toString(36).slice(2);
+    localStorage.setItem("auto_user_id", userId);
+  }
+
+  console.log("👤 USER ID:", userId);
+
+  // =========================
+  // LOAD CONFIG + USERS
+  // =========================
+  async function loadData() {
     try {
-      const res = await fetch(CONFIG_URL + "?t=" + Date.now());
-      config = await res.json();
-      console.log("⚙️ Config:", config);
-    } catch {
-      console.log("❌ Config load failed");
+      const [confRes, userRes] = await Promise.all([
+        fetch(CONFIG_URL + "?t=" + Date.now()),
+        fetch(USERS_URL + "?t=" + Date.now())
+      ]);
+
+      config = await confRes.json();
+      const users = await userRes.json();
+
+      if (!users.allowedUsers.includes(userId)) {
+        console.log("❌ ACCESS DENIED");
+        return false;
+      }
+
+      console.log("✅ ACCESS GRANTED");
+      return true;
+
+    } catch (e) {
+      console.log("❌ LOAD ERROR", e);
+      return false;
     }
   }
+
+  // =========================
+  // CORE SCAN ENGINE
+  // =========================
+  let clickedSet = new Set();
+  let lastClick = 0;
 
   function scan() {
     if (!config.enabled) return;
@@ -30,64 +58,52 @@
 
     items.forEach(item => {
       const priceEl = item.querySelector("div.mb6.x-row.x-row-middle.amount");
-      const btn = item.querySelector("button.van-button.x-btn");
+      const btn = item.querySelector("button");
 
       if (!priceEl || !btn) return;
 
-      const val = parseFloat(priceEl.textContent.replace(/[^\d.]/g, ''));
+      const text = priceEl.innerText;
 
-      if (
-        val === config.targetAmount &&
-        !clickedSet.has(item) &&
-        clickCount < (config.maxClicks || 999)
-      ) {
-        clickedSet.add(item);
+      // 🔥 FLEXIBLE MATCH (FIXED)
+      if (text.includes(config.targetAmount)) {
 
-        if (config.highlight) {
-          btn.style.boxShadow = "0 0 10px lime";
-        }
+        // prevent duplicate click
+        if (clickedSet.has(text)) return;
 
-        const delay =
-          Math.random() *
-            (config.clickDelayMax - config.clickDelayMin) +
-          config.clickDelayMin;
+        // cooldown (avoid spam detection)
+        if (Date.now() - lastClick < 800) return;
+
+        clickedSet.add(text);
+        lastClick = Date.now();
+
+        item.style.border = "2px solid red";
 
         setTimeout(() => {
           btn.click();
-          clickCount++;
-          console.log(`✔ Clicked ₹${val} (${clickCount})`);
-        }, delay);
+          console.log("✔ CLICKED:", text);
+        }, 120);
       }
     });
   }
 
+  // =========================
+  // START SYSTEM
+  // =========================
   async function start() {
-    await loadConfig();
+    const allowed = await loadData();
+    if (!allowed) return;
 
-    if (!config.enabled) return;
+    // run scan continuously
+    setInterval(scan, 500);
 
-    running = true;
-    clickCount = 0;
-    clickedSet.clear();
+    // reset memory periodically (avoid blocking)
+    setInterval(() => {
+      clickedSet.clear();
+    }, 5000);
 
-    scan();
-
-    observer = new MutationObserver(() => {
-      if (running) scan();
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
-
-    interval = setInterval(() => {
-      if (running) scan();
-    }, config.scanInterval || 300);
-
-    setInterval(loadConfig, 10000);
+    console.log("🚀 AUTO RUNNING");
   }
 
   start();
+
 })();
